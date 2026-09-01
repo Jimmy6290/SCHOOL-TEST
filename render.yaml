@@ -1,0 +1,12 @@
+# Render 一键部署蓝图（免费 Web Service）
+# 用法：把本项目推送到 GitHub → Render 新建 Blueprint 选择本仓库 → 部署时设置环境变量 DEEPSEEK_API_KEY
+services:
+  - type: web
+    name: kaixue-helper
+    runtime: node
+    plan: free
+    buildCommand: ""
+    startCommand: node server.mjs
+    envVars:
+      - key: DEEPSEEK_API_KEY
+        sync: false
