@@ -50,7 +50,8 @@ const DEFAULTS = {
     '解答范围包括：新生报到流程、宿舍安排与入住、学费与缴费方式、军训安排、校园食堂与生活、选课、校园卡、社团招新、交通路线等开学相关日常问题。\n' +
     '遇到不确定的信息时，请如实说明，并建议新生以学校官方通知或辅导员答复为准。\n\n' +
     '【知识库】\n（此处可粘贴学校的官方通知、常见问题解答等内容，后期补充即可，当前留空。）',
-  rateLimit: { windowMs: 60000, max: 20 }
+  rateLimit: { windowMs: 60000, max: 20 },
+  keywordReplies: {}
 };
 
 function loadConfig() {
@@ -106,6 +107,21 @@ function sendJson(res, status, obj) {
   res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' });
   res.end(JSON.stringify(obj));
 }
+function sendSseReply(res, text) {
+  res.writeHead(200, { 'Content-Type': 'text/event-stream; charset=utf-8', 'Cache-Control': 'no-cache' });
+  const chunks = text.match(/[\s\S]{1,10}/g) || [text];
+  let i = 0;
+  const timer = setInterval(() => {
+    if (i < chunks.length) {
+      res.write('data: ' + JSON.stringify({ choices: [{ delta: { content: chunks[i] } }] }) + '\n\n');
+      i++;
+    } else {
+      clearInterval(timer);
+      res.write('data: [DONE]\n\n');
+      res.end();
+    }
+  }, 60);
+}
 function parseBody(req, limit = 65536) {
   return new Promise((resolve, reject) => {
     let size = 0;
@@ -148,22 +164,21 @@ async function handleChat(req, res) {
   const invalid = validateMessages(payload.messages);
   if (invalid) { sendJson(res, 400, { error: invalid }); return; }
 
+  // 关键词触发回复：命中关键词直接返回固定内容，不调用 AI
+  const lastUser = [...payload.messages].reverse().find((m) => m.role === 'user');
+  const kws = cfg.keywordReplies || {};
+  if (lastUser) {
+    const hit = Object.keys(kws).find((k) => k && lastUser.content.includes(k));
+    if (hit && typeof kws[hit] === 'string' && kws[hit]) {
+      sendSseReply(res, kws[hit]);
+      return;
+    }
+  }
+
   if (isMock) {
     const lastUser = [...payload.messages].reverse().find((m) => m.role === 'user');
     const text = '（演示模式）你问的是：' + (lastUser ? lastUser.content : '？') + '\n\n这是本地演示模式的模拟回复。在 config.json 中填好 DeepSeek API Key 后重新启动，即可获得真实 AI 回答。';
-    res.writeHead(200, { 'Content-Type': 'text/event-stream; charset=utf-8', 'Cache-Control': 'no-cache' });
-    const chunks = text.match(/[\s\S]{1,8}/g) || [];
-    let i = 0;
-    const timer = setInterval(() => {
-      if (i < chunks.length) {
-        res.write('data: ' + JSON.stringify({ choices: [{ delta: { content: chunks[i] } }] }) + '\n\n');
-        i++;
-      } else {
-        clearInterval(timer);
-        res.write('data: [DONE]\n\n');
-        res.end();
-      }
-    }, 80);
+    sendSseReply(res, text);
     return;
   }
 
