@@ -51,7 +51,8 @@ const DEFAULTS = {
     '遇到不确定的信息时，请如实说明，并建议新生以学校官方通知或辅导员答复为准。\n\n' +
     '【知识库】\n（此处可粘贴学校的官方通知、常见问题解答等内容，后期补充即可，当前留空。）',
   rateLimit: { windowMs: 60000, max: 20 },
-  keywordReplies: {}
+  keywordReplies: {},
+  knowledgeBase: []
 };
 
 function loadConfig() {
@@ -107,6 +108,12 @@ function sendJson(res, status, obj) {
   res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' });
   res.end(JSON.stringify(obj));
 }
+function buildSystemPrompt(cfg) {
+  const kb = Array.isArray(cfg.knowledgeBase) ? cfg.knowledgeBase.filter((x) => x && x.trim()) : [];
+  if (!kb.length) return cfg.systemPrompt;
+  return cfg.systemPrompt + '\n\n【知识库】\n- ' + kb.join('\n- ');
+}
+
 function sendSseReply(res, text) {
   res.writeHead(200, { 'Content-Type': 'text/event-stream; charset=utf-8', 'Cache-Control': 'no-cache' });
   const chunks = text.match(/[\s\S]{1,10}/g) || [text];
@@ -199,7 +206,7 @@ async function handleChat(req, res) {
       headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + cfg.apiKey },
       body: JSON.stringify({
         model: cfg.model,
-        messages: [{ role: 'system', content: cfg.systemPrompt }, ...payload.messages.slice(-20)],
+        messages: [{ role: 'system', content: buildSystemPrompt(cfg) }, ...payload.messages.slice(-20)],
         stream: true,
         temperature: 0.7
       }),
